@@ -14,7 +14,6 @@ This project tries to combine:
 - [How to build a Code Editor with CodeMirror 6 and TypeScript](https://voracious.dev/blog/how-to-build-a-code-editor-with-codemirror-6-and-typescript/introduction)
 - [Codemirror - lang-python](https://www.npmjs.com/package/@codemirror/lang-python)
 - [Terser](https://terser.org)
-- [hexembed](https://github.com/codeplea/hexembed)
 
 
 ## Status
