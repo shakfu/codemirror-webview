@@ -1,5 +1,5 @@
 
-WEBVIEW_DIR=libs/webview
+WEBVIEW_DIR=../libs/webview
 BUILD_DIR=build
 OBJS=build/objs
 JS=web/js
