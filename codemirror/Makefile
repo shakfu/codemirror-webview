@@ -13,7 +13,7 @@ node_modules:
 	@npm i @codemirror/lang-python
 	@npm i @codemirror/theme-one-dark
 	@npm i rollup @rollup/plugin-node-resolve
-	@npm i tersercd
+	@npm i terser
 
 $(OBJS)/editor.o: editor.c
 	@mkdir -p $(OBJS)

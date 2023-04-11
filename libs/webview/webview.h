@@ -975,6 +975,8 @@ private:
     m_manager = objc::msg_send<id>(config, "userContentController"_sel);
     m_webview = objc::msg_send<id>("WKWebView"_cls, "alloc"_sel);
 
+    createMenus();
+
     if (m_debug) {
       // Equivalent Obj-C:
       // [[config preferences] setValue:@YES forKey:@"developerExtrasEnabled"];
@@ -1023,11 +1025,76 @@ private:
     objc::msg_send<void>(m_window, "setContentView:"_sel, m_webview);
     objc::msg_send<void>(m_window, "makeKeyAndOrderFront:"_sel, nullptr);
   }
+
+void createMenus()
+  {
+    // Create menu bar
+    m_menuBar = objc::msg_send<id>("NSMenu"_cls, "alloc"_sel);
+    objc::msg_send<void>(m_menuBar, "initWithTitle:"_sel, ""_str);
+    objc::msg_send<void>(m_menuBar, "autorelease"_sel);
+    
+    id appName = objc::msg_send<id>(objc::msg_send<id>("NSProcessInfo"_cls, "processInfo"_sel), "processName"_sel);
+        
+    
+    // Create application menu
+    
+    id appMenuItem = objc::msg_send<id>("NSMenuItem"_cls, "alloc"_sel);
+    objc::msg_send<void>(appMenuItem, "initWithTitle:action:keyEquivalent:"_sel, appName, nullptr, ""_str);
+    objc::msg_send<void>(m_menuBar, "addItem:"_sel, appMenuItem);
+  
+    id appMenu = objc::msg_send<id>("NSMenu"_cls, "alloc"_sel);
+    objc::msg_send<void>(appMenu, "initWithTitle:"_sel, appName);
+    objc::msg_send<void>(appMenu, "autorelease"_sel);
+    
+    id quitTitle = objc::msg_send<id>("NSString"_cls, "stringWithFormat:"_sel, "Quit %@"_str, appName);
+    id quitMenuItem = objc::msg_send<id>("NSMenuItem"_cls, "alloc"_sel);
+    objc::msg_send<void>(quitMenuItem, "initWithTitle:action:keyEquivalent:"_sel, quitTitle, "terminate:"_sel, "q"_str);
+    objc::msg_send<void>(appMenu, "addItem:"_sel, quitMenuItem);
+    
+    objc::msg_send<void>(appMenuItem, "setSubmenu:"_sel, appMenu);
+    
+    // Edit menu
+    
+    id editMenuItem = objc::msg_send<id>("NSMenuItem"_cls, "alloc"_sel);
+    objc::msg_send<void>(editMenuItem, "initWithTitle:action:keyEquivalent:"_sel, "Edit"_str, nullptr, ""_str);
+    
+    id editMenu = objc::msg_send<id>("NSMenu"_cls, "alloc"_sel);
+    objc::msg_send<void>(editMenu, "initWithTitle:"_sel, "Edit"_str);
+    objc::msg_send<void>(editMenu, "autorelease"_sel);
+    
+    objc::msg_send<void>(editMenuItem, "setSubmenu:"_sel, editMenu);
+    objc::msg_send<void>(m_menuBar, "addItem:"_sel, editMenuItem);
+        
+    id cutMenuItem = objc::msg_send<id>("NSMenuItem"_cls, "alloc"_sel);
+    objc::msg_send<void>(cutMenuItem, "initWithTitle:action:keyEquivalent:"_sel, "Cut"_str, "cut:"_sel, "x"_str);
+    objc::msg_send<void>(editMenu, "addItem:"_sel, cutMenuItem);
+    
+    id copyMenuItem = objc::msg_send<id>("NSMenuItem"_cls, "alloc"_sel);
+    objc::msg_send<void>(copyMenuItem, "initWithTitle:action:keyEquivalent:"_sel, "Copy"_str, "copy:"_sel, "c"_str);
+    objc::msg_send<void>(editMenu, "addItem:"_sel, copyMenuItem);
+    
+    id pasteMenuItem = objc::msg_send<id>("NSMenuItem"_cls, "alloc"_sel);
+    objc::msg_send<void>(pasteMenuItem, "initWithTitle:action:keyEquivalent:"_sel, "Paste"_str, "paste:"_sel, "v"_str);
+    objc::msg_send<void>(editMenu, "addItem:"_sel, pasteMenuItem);
+    
+    // separator
+    id separatorMenuItem = objc::msg_send<id>("NSMenuItem"_cls, "separatorItem"_sel);
+    objc::msg_send<void>(editMenu, "addItem:"_sel, separatorMenuItem);
+    
+    // select all
+    id selectAllMenuItem = objc::msg_send<id>("NSMenuItem"_cls, "alloc"_sel);
+    objc::msg_send<void>(selectAllMenuItem, "initWithTitle:action:keyEquivalent:"_sel, "Select All"_str, "selectAll:"_sel, "a"_str);
+    objc::msg_send<void>(editMenu, "addItem:"_sel, selectAllMenuItem);
+    
+    objc::msg_send<void>(objc::msg_send<id>("NSApplication"_cls, "sharedApplication"_sel), "setMainMenu:"_sel, m_menuBar);
+    
+  }
   bool m_debug;
   void *m_parent_window;
   id m_window;
   id m_webview;
   id m_manager;
+  id m_menuBar;
 };
 
 } // namespace detail
