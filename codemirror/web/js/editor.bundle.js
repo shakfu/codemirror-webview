@@ -4676,6 +4676,7 @@
        static get(node) { return node.cmView; }
        get isEditable() { return true; }
        get isWidget() { return false; }
+       get isHidden() { return false; }
        merge(from, to, source, hasStart, openStart, openEnd) {
            return false;
        }
@@ -5013,7 +5014,7 @@
        become(other) {
            if (other.length == this.length && other instanceof WidgetView && other.side == this.side) {
                if (this.widget.constructor == other.widget.constructor) {
-                   if (!this.widget.eq(other.widget))
+                   if (!this.widget.compare(other.widget))
                        this.markDirty(true);
                    if (this.dom && !this.prevWidget)
                        this.prevWidget = this.widget;
@@ -5035,7 +5036,9 @@
            return text ? text.slice(start, start + this.length) : Text.empty;
        }
        domAtPos(pos) {
-           return pos == 0 ? DOMPos.before(this.dom) : DOMPos.after(this.dom, pos == this.length);
+           return (this.length ? pos == 0 : this.side > 0)
+               ? DOMPos.before(this.dom)
+               : DOMPos.after(this.dom, pos == this.length);
        }
        domBoundsAround() { return null; }
        coordsAt(pos, side) {
@@ -5051,6 +5054,7 @@
        }
        get isEditable() { return false; }
        get isWidget() { return true; }
+       get isHidden() { return this.widget.isHidden; }
        destroy() {
            super.destroy();
            if (this.dom)
@@ -5163,6 +5167,7 @@
        get overrideDOMText() {
            return Text.empty;
        }
+       get isHidden() { return true; }
    }
    TextView.prototype.children = WidgetView.prototype.children = WidgetBufferView.prototype.children = noChildren;
    function inlineSiblingRect(view, side) {
@@ -5236,7 +5241,8 @@
                    if (child.children.length) {
                        scan(child, pos - off);
                    }
-                   else if (!after && (end > pos || off == end && child.getSide() > 0)) {
+                   else if ((!after || after instanceof WidgetBufferView && side > 0) &&
+                       (end > pos || off == end && child.getSide() > 0)) {
                        after = child;
                        afterPos = pos - off;
                    }
@@ -5349,6 +5355,10 @@
        @internal
        */
        get customView() { return null; }
+       /**
+       @internal
+       */
+       get isHidden() { return false; }
        /**
        This is called when the an instance of the widget is removed
        from the editor view.
@@ -5760,7 +5770,7 @@
        become(other) {
            if (other instanceof BlockWidgetView && other.type == this.type &&
                other.widget.constructor == this.widget.constructor) {
-               if (!other.widget.eq(this.widget))
+               if (!other.widget.compare(this.widget))
                    this.markDirty(true);
                if (this.dom && !this.prevWidget)
                    this.prevWidget = this.widget;
@@ -5891,10 +5901,11 @@
                }
                else {
                    let view = WidgetView.create(deco.widget || new NullWidget("span"), len, len ? 0 : deco.startSide);
-                   let cursorBefore = this.atCursorPos && !view.isEditable && openStart <= active.length && (from < to || deco.startSide > 0);
+                   let cursorBefore = this.atCursorPos && !view.isEditable && openStart <= active.length &&
+                       (from < to || deco.startSide > 0);
                    let cursorAfter = !view.isEditable && (from < to || openStart > active.length || deco.startSide <= 0);
                    let line = this.getLine();
-                   if (this.pendingBuffer == 2 /* Buf.IfCursor */ && !cursorBefore)
+                   if (this.pendingBuffer == 2 /* Buf.IfCursor */ && !cursorBefore && !view.isEditable)
                        this.pendingBuffer = 0 /* Buf.No */;
                    this.flushBuffer(active);
                    if (cursorBefore) {
@@ -5948,6 +5959,7 @@
        eq(other) { return other.tag == this.tag; }
        toDOM() { return document.createElement(this.tag); }
        updateDOM(elt) { return elt.nodeName.toLowerCase() == this.tag; }
+       get isHidden() { return true; }
    }
 
    const clickAddsSelectionRange = /*@__PURE__*/Facet.define();
@@ -6800,7 +6812,7 @@
            let head = main.empty ? anchor : this.domAtPos(main.head);
            // Always reset on Firefox when next to an uneditable node to
            // avoid invisible cursor bugs (#111)
-           if (browser.gecko && main.empty && betweenUneditable(anchor)) {
+           if (browser.gecko && main.empty && !this.compositionDeco.size && betweenUneditable(anchor)) {
                let dummy = document.createTextNode("");
                this.view.observer.ignore(() => anchor.node.insertBefore(dummy, anchor.node.childNodes[anchor.offset] || null));
                anchor = head = new DOMPos(dummy, 0);
@@ -7594,7 +7606,15 @@
            // first, false means first has already been marked for this
            // composition)
            this.compositionFirstChange = null;
+           // End time of the previous composition
            this.compositionEndedAt = 0;
+           // Used in a kludge to detect when an Enter keypress should be
+           // considered part of the composition on Safari, which fires events
+           // in the wrong order
+           this.compositionPendingKey = false;
+           // Used to categorize changes as part of a composition, even when
+           // the mutation events fire shortly after the compositionend event
+           this.compositionPendingChange = false;
            this.mouseSelection = null;
            let handleEvent = (handler, event) => {
                if (this.ignoreDuringComposition(event))
@@ -7751,8 +7771,8 @@
            // compositionend and keydown events are sometimes emitted in the
            // wrong order. The key event should still be ignored, even when
            // it happens after the compositionend event.
-           if (browser.safari && !browser.ios && Date.now() - this.compositionEndedAt < 100) {
-               this.compositionEndedAt = 0;
+           if (browser.safari && !browser.ios && this.compositionPendingKey && Date.now() - this.compositionEndedAt < 100) {
+               this.compositionPendingKey = false;
                return true;
            }
            return false;
@@ -7784,8 +7804,9 @@
    const EmacsyPendingKeys = "dthko";
    // Key codes for modifier keys
    const modifierCodes = [16, 17, 18, 20, 91, 92, 224, 225];
+   const dragScrollMargin = 6;
    function dragScrollSpeed(dist) {
-       return dist * 0.7 + 8;
+       return Math.max(0, dist) * 0.7 + 8;
    }
    class MouseSelection {
        constructor(view, startEvent, style, mustSelect) {
@@ -7822,13 +7843,13 @@
            let sx = 0, sy = 0;
            let rect = ((_a = this.scrollParent) === null || _a === void 0 ? void 0 : _a.getBoundingClientRect())
                || { left: 0, top: 0, right: this.view.win.innerWidth, bottom: this.view.win.innerHeight };
-           if (event.clientX <= rect.left)
+           if (event.clientX <= rect.left + dragScrollMargin)
                sx = -dragScrollSpeed(rect.left - event.clientX);
-           else if (event.clientX >= rect.right)
+           else if (event.clientX >= rect.right - dragScrollMargin)
                sx = dragScrollSpeed(event.clientX - rect.right);
-           if (event.clientY <= rect.top)
+           if (event.clientY <= rect.top + dragScrollMargin)
                sy = -dragScrollSpeed(rect.top - event.clientY);
-           else if (event.clientY >= rect.bottom)
+           else if (event.clientY >= rect.bottom - dragScrollMargin)
                sy = dragScrollSpeed(event.clientY - rect.bottom);
            this.setScrollSpeed(sx, sy);
        }
@@ -8075,7 +8096,7 @@
                }
            },
            get(event, extend, multiple) {
-               let cur = queryPos(view, event);
+               let cur = queryPos(view, event), removed;
                let range = rangeForClick(view, cur.pos, cur.bias, type);
                if (start.pos != cur.pos && !extend) {
                    let startRange = rangeForClick(view, start.pos, start.bias, type);
@@ -8084,8 +8105,8 @@
                }
                if (extend)
                    return startSel.replaceRange(startSel.main.extend(range.from, range.to));
-               else if (multiple && startSel.ranges.length > 1 && startSel.ranges.some(r => r.eq(range)))
-                   return removeRange(startSel, range);
+               else if (multiple && type == 1 && startSel.ranges.length > 1 && (removed = removeRangeAround(startSel, cur.pos)))
+                   return removed;
                else if (multiple)
                    return startSel.addRange(range);
                else
@@ -8093,11 +8114,13 @@
            }
        };
    }
-   function removeRange(sel, range) {
-       for (let i = 0;; i++) {
-           if (sel.ranges[i].eq(range))
+   function removeRangeAround(sel, pos) {
+       for (let i = 0; i < sel.ranges.length; i++) {
+           let { from, to } = sel.ranges[i];
+           if (from <= pos && to >= pos)
                return EditorSelection.create(sel.ranges.slice(0, i).concat(sel.ranges.slice(i + 1)), sel.mainIndex == i ? 0 : sel.mainIndex - (sel.mainIndex > i ? 1 : 0));
        }
+       return null;
    }
    handlers.dragstart = (view, event) => {
        let { selection: { main } } = view.state;
@@ -8274,6 +8297,8 @@
    handlers.compositionend = view => {
        view.inputState.composing = -1;
        view.inputState.compositionEndedAt = Date.now();
+       view.inputState.compositionPendingKey = true;
+       view.inputState.compositionPendingChange = view.observer.pendingRecords().length > 0;
        view.inputState.compositionFirstChange = null;
        if (browser.chrome && browser.android)
            view.observer.flushSoon();
@@ -9928,8 +9953,7 @@
            }
            else {
                let changes = startState.changes(change);
-               let mainSel = newSel && !startState.selection.main.eq(newSel.main) && newSel.main.to <= changes.newLength
-                   ? newSel.main : undefined;
+               let mainSel = newSel && newSel.main.to <= changes.newLength ? newSel.main : undefined;
                // Try to apply a composition change to all cursors
                if (startState.selection.ranges.length > 1 && view.inputState.composing >= 0 &&
                    change.to <= sel.to && change.to >= sel.to - 10) {
@@ -9963,7 +9987,9 @@
                }
            }
            let userEvent = "input.type";
-           if (view.composing) {
+           if (view.composing ||
+               view.inputState.compositionPendingChange && view.inputState.compositionEndedAt > Date.now() - 50) {
+               view.inputState.compositionPendingChange = false;
                userEvent += ".compose";
                if (view.inputState.compositionFirstChange) {
                    userEvent += ".start";
@@ -10339,10 +10365,13 @@
            }
            this.flush();
        }
-       processRecords() {
-           let records = this.queue;
+       pendingRecords() {
            for (let mut of this.observer.takeRecords())
-               records.push(mut);
+               this.queue.push(mut);
+           return this.queue;
+       }
+       processRecords() {
+           let records = this.pendingRecords();
            if (records.length)
                this.queue = [];
            let from = -1, to = -1, typeOver = false;
@@ -24729,11 +24758,127 @@
        ]);
    }
 
-   new EditorView({
-     extensions: [basicSetup, python()],
-     parent: document.body
+   // Using https://github.com/one-dark/vscode-one-dark-theme/ as reference for the colors
+   const chalky = "#e5c07b", coral = "#e06c75", cyan = "#56b6c2", invalid = "#ffffff", ivory = "#abb2bf", stone = "#7d8799", // Brightened compared to original to increase contrast
+   malibu = "#61afef", sage = "#98c379", whiskey = "#d19a66", violet = "#c678dd", darkBackground = "#21252b", highlightBackground = "#2c313a", background = "#282c34", tooltipBackground = "#353a42", selection = "#3E4451", cursor = "#528bff";
+   /**
+   The editor theme styles for One Dark.
+   */
+   const oneDarkTheme = /*@__PURE__*/EditorView.theme({
+       "&": {
+           color: ivory,
+           backgroundColor: background
+       },
+       ".cm-content": {
+           caretColor: cursor
+       },
+       ".cm-cursor, .cm-dropCursor": { borderLeftColor: cursor },
+       "&.cm-focused .cm-selectionBackground, .cm-selectionBackground, .cm-content ::selection": { backgroundColor: selection },
+       ".cm-panels": { backgroundColor: darkBackground, color: ivory },
+       ".cm-panels.cm-panels-top": { borderBottom: "2px solid black" },
+       ".cm-panels.cm-panels-bottom": { borderTop: "2px solid black" },
+       ".cm-searchMatch": {
+           backgroundColor: "#72a1ff59",
+           outline: "1px solid #457dff"
+       },
+       ".cm-searchMatch.cm-searchMatch-selected": {
+           backgroundColor: "#6199ff2f"
+       },
+       ".cm-activeLine": { backgroundColor: "#6699ff0b" },
+       ".cm-selectionMatch": { backgroundColor: "#aafe661a" },
+       "&.cm-focused .cm-matchingBracket, &.cm-focused .cm-nonmatchingBracket": {
+           backgroundColor: "#bad0f847"
+       },
+       ".cm-gutters": {
+           backgroundColor: background,
+           color: stone,
+           border: "none"
+       },
+       ".cm-activeLineGutter": {
+           backgroundColor: highlightBackground
+       },
+       ".cm-foldPlaceholder": {
+           backgroundColor: "transparent",
+           border: "none",
+           color: "#ddd"
+       },
+       ".cm-tooltip": {
+           border: "none",
+           backgroundColor: tooltipBackground
+       },
+       ".cm-tooltip .cm-tooltip-arrow:before": {
+           borderTopColor: "transparent",
+           borderBottomColor: "transparent"
+       },
+       ".cm-tooltip .cm-tooltip-arrow:after": {
+           borderTopColor: tooltipBackground,
+           borderBottomColor: tooltipBackground
+       },
+       ".cm-tooltip-autocomplete": {
+           "& > ul > li[aria-selected]": {
+               backgroundColor: highlightBackground,
+               color: ivory
+           }
+       }
+   }, { dark: true });
+   /**
+   The highlighting style for code in the One Dark theme.
+   */
+   const oneDarkHighlightStyle = /*@__PURE__*/HighlightStyle.define([
+       { tag: tags.keyword,
+           color: violet },
+       { tag: [tags.name, tags.deleted, tags.character, tags.propertyName, tags.macroName],
+           color: coral },
+       { tag: [/*@__PURE__*/tags.function(tags.variableName), tags.labelName],
+           color: malibu },
+       { tag: [tags.color, /*@__PURE__*/tags.constant(tags.name), /*@__PURE__*/tags.standard(tags.name)],
+           color: whiskey },
+       { tag: [/*@__PURE__*/tags.definition(tags.name), tags.separator],
+           color: ivory },
+       { tag: [tags.typeName, tags.className, tags.number, tags.changed, tags.annotation, tags.modifier, tags.self, tags.namespace],
+           color: chalky },
+       { tag: [tags.operator, tags.operatorKeyword, tags.url, tags.escape, tags.regexp, tags.link, /*@__PURE__*/tags.special(tags.string)],
+           color: cyan },
+       { tag: [tags.meta, tags.comment],
+           color: stone },
+       { tag: tags.strong,
+           fontWeight: "bold" },
+       { tag: tags.emphasis,
+           fontStyle: "italic" },
+       { tag: tags.strikethrough,
+           textDecoration: "line-through" },
+       { tag: tags.link,
+           color: stone,
+           textDecoration: "underline" },
+       { tag: tags.heading,
+           fontWeight: "bold",
+           color: coral },
+       { tag: [tags.atom, tags.bool, /*@__PURE__*/tags.special(tags.variableName)],
+           color: whiskey },
+       { tag: [tags.processingInstruction, tags.string, tags.inserted],
+           color: sage },
+       { tag: tags.invalid,
+           color: invalid },
+   ]);
+   /**
+   Extension to enable the One Dark theme (both the editor theme and
+   the highlight style).
+   */
+   const oneDark = [oneDarkTheme, /*@__PURE__*/syntaxHighlighting(oneDarkHighlightStyle)];
+
+   let editor = new EditorView({
+       extensions: [basicSetup, python(), oneDark, highlightActiveLine()],
+       doc: "# python code here",
+       parent: document.body,
    });
 
-   // alert(editor.state.doc.toString());
+   function saveCode() {
+       console.log(editor.state.doc.toString());
+       save_code(editor.state.doc.toString());
+       document.getElementById("msg").innerHTML = "code saved";
+   }
+
+   var btn = document.getElementById("myBtn");
+   btn.addEventListener("click", saveCode);
 
 })();

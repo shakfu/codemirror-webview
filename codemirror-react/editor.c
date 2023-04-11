@@ -1,20 +1,16 @@
 #include "webview.h"
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
-
-#define DEBUG 1
 
 // ---------------------------------------------------------------------------
 // callback functions
-void run_code(const char *seq, const char *req, void *arg) {
+void myFunc(const char *seq, const char *req, void *arg) {
     printf("Params: %s\n", req);
 }
 
-void save_code(const char *seq, const char *req, void *arg) {
-    printf("Params: %s\n", req);
+void dump(const char *seq, const char *req, void *arg) {
+    printf("content: %s\n", req);
 }
-
 
 // ---------------------------------------------------------------------------
 // utility functions
@@ -36,8 +32,8 @@ char *read_file(char *filename) {
     }
 
     if (buffer)
-    	return buffer; // caller has to free(buffer)
-    return NULL;
+    	return buffer;
+    return NULL; 
 }
 
 
@@ -45,17 +41,17 @@ char *read_file(char *filename) {
 // main function
 
 int main() {
-    webview_t w = webview_create(DEBUG, NULL);
-    webview_set_title(w, "code editor");
-    // webview_set_size(w, 480, 320, WEBVIEW_HINT_NONE);
-    webview_set_size(w, 480, 480, WEBVIEW_HINT_NONE);
-    webview_bind(w, "run_code", run_code, NULL);
-    webview_bind(w, "save_code", save_code, NULL);
-    char* html = read_file("index.html");
-    if (html != NULL) {
-        webview_set_html(w, html);
-        free(html);
-    }
+	
+    webview_t w = webview_create(0, NULL);
+    webview_set_title(w, "Webview Example");
+    webview_set_size(w, 480, 320, WEBVIEW_HINT_NONE);
+    webview_bind(w, "myFunc", myFunc, NULL);
+    webview_bind(w, "dump", dump, NULL);
+    // webview_init(w, js);
+    // char* html = read_file("index.html");
+    // webview_set_html(w, html);
+    // free(html);
+    webview_navigate(w, "http://localhost:3000");
     webview_run(w);
     webview_destroy(w);
     return 0;

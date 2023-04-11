@@ -18,4 +18,13 @@ This project tries to combine:
 
 ## Status
 
-Prototyping phase.
+
+setup   | editor | index.html
+------- | ------ | ----------
+minimal | 258K   | 450K
+normal  | 258K   | 564K
+
+Proof-of-concept working without server in subproject `codemirror`, with server in subproject codemirror-react.
+
+
+
